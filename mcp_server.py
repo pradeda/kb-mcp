@@ -14,7 +14,7 @@ mcp = FastMCP("kb")
 )
 def kb_search(query: str) -> str:
     result = subprocess.run(
-        ["/usr/local/bin/kb-ask", query],
+        ["/usr/local/bin/kb", "ask", query],
         capture_output=True,
         text=True,
         timeout=30,
