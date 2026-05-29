@@ -2,6 +2,8 @@
 
 MCP (Model Context Protocol) server and KB Search API for the homelab knowledge base. Two components:
 
+> **Used by:** [kb-go](https://github.com/pradeda/kb-go) — `kb ask` calls `kb_search_api.py` for retrieval + cross-encoder reranking before LLM synthesis.
+
 | File | Role | Runs as |
 |------|------|---------|
 | `mcp_server.py` | MCP tools for LLM agents (`kb_search`, `kb_add`) | Registered in Claude Code / Gemini |
