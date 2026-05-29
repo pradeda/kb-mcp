@@ -17,7 +17,7 @@ CHROMA_COLLECTION = "kb_collection"
 DB_PATH = "/opt/kb/kb.db"
 MAX_DISTANCE = 0.40          # cosine floor — discard obvious noise
 N_RESULTS = 25               # broad recall before reranking (was 10)
-RERANK_THRESHOLD = 0.5       # initial relevance threshold, calibrated after testing
+RERANK_THRESHOLD = 0.5       # minimum cross-encoder relevance to include a result (applied pre-decay)
 DECAY_HALF_LIFE = 540.0      # days (~1.5yr) — conservative for homelab technical docs
 DECAY_FLOOR = 0.3            # minimum decay multiplier (entry never drops below 30%)
 TOP_FULL = 5                 # cap for full format
@@ -225,13 +225,19 @@ def fetch_metadata(results: list[dict]) -> list[SearchResult]:
 # --- cross-encoder reranking ---
 def _rerank(query: str, results: list[SearchResult]) -> list[SearchResult]:
     """Rerank results using cross-encoder for semantic relevance.
-    Operates on chunk content (first 500 chars to respect 512-token limit).
-    Falls back to distance-sort if model not available."""
-    if rerank_model is None or not results:
+    Operates on first ~1500 chars of content (well within ms-marco 512-token limit).
+    Falls back to distance-based relevance if model not available."""
+    if rerank_model is None:
+        for r in results:
+            r.relevance = max(0.0, 1.0 - r.distance)
+        results.sort(key=lambda x: -x.relevance)
+        return results
+
+    if not results:
         return results
 
     try:
-        pairs = [(query, (r.content or r.summary or "")[:500]) for r in results]
+        pairs = [(query, (r.content or r.summary or "")[:1500]) for r in results]
         raw_scores = rerank_model.predict(pairs)
 
         for i, score in enumerate(raw_scores):
@@ -241,19 +247,11 @@ def _rerank(query: str, results: list[SearchResult]) -> list[SearchResult]:
         return results
 
     except Exception as e:
-        print(f"[rerank] Cross-encoder error: {e}, falling back to distance sort", flush=True)
-        results.sort(key=lambda x: x.distance)
+        print(f"[rerank] Cross-encoder error: {e}, falling back to distance-based relevance", flush=True)
+        for r in results:
+            r.relevance = max(0.0, 1.0 - r.distance)
+        results.sort(key=lambda x: -x.relevance)
         return results
-
-
-# --- dedup: keep best chunk per document ---
-def _dedup(results: list[SearchResult]) -> list[SearchResult]:
-    """If multiple chunks from the same entry exist, keep only the highest-scoring one."""
-    seen = {}
-    for r in results:
-        if r.id not in seen or r.relevance > seen[r.id].relevance:
-            seen[r.id] = r
-    return list(seen.values())
 
 
 # --- time decay (applied AFTER rerank as recency correction) ---
@@ -283,7 +281,7 @@ def _apply_decay(results: list[SearchResult]) -> list[SearchResult]:
 
 # --- full pipeline ---
 def _do_search(query: str) -> list[SearchResult]:
-    """Layer 1: ChromaDB recall → Layer 2: cross-encoder rerank → dedup → Layer 3: decay → Layer 4: cutoff"""
+    """Layer 1: ChromaDB recall → Layer 2: cross-encoder rerank → Layer 3: decay → Layer 4: cutoff"""
     embedding = embed_query(query)
     raw = query_chromadb(embedding)
     results = fetch_metadata(raw)
@@ -291,17 +289,14 @@ def _do_search(query: str) -> list[SearchResult]:
     if not results:
         return []
 
-    # Layer 2: cross-encoder reranking (or fallback to distance sort)
+    # Layer 2: cross-encoder reranking (or distance-based fallback)
     results = _rerank(query, results)
 
-    # Dedup: keep best chunk per entry
-    results = _dedup(results)
-
-    # Layer 3: time decay as recency correction
+    # Layer 3: time decay as recency correction (affects ordering, not inclusion)
     results = _apply_decay(results)
 
-    # Layer 4: threshold filter + cap (no fallback — empty is honest)
-    passed = [r for r in results if r.final_score >= RERANK_THRESHOLD]
+    # Layer 4: threshold on relevance (pre-decay), then cap
+    passed = [r for r in results if r.relevance >= RERANK_THRESHOLD]
     return passed
 
 
