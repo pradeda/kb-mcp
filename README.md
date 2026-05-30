@@ -33,11 +33,33 @@ python3 -m venv venv
 source venv/bin/activate
 pip install fastmcp fastapi uvicorn httpx sentence-transformers
 
-# Run MCP server (registered via MCP client config)
+# MCP server — stdio transport (local, for Claude Code)
 python3 mcp_server.py
+
+# MCP server — SSE transport (remote access, for desktop clients)
+python3 mcp_server.py --sse    # listens on 0.0.0.0:9100
 
 # Run KB Search API (systemd or manual)
 python3 kb_search_api.py
+```
+
+### SSE transport (`--sse`)
+
+Adding `--sse` switches from stdio to SSE transport on port 9100. Server binds to `0.0.0.0` so remote desktop clients can connect over LAN/WireGuard.
+
+Host and port are set directly in `FastMCP()` constructor — NOT via environment variables:
+
+```python
+mcp = FastMCP("kb", host="0.0.0.0", port=9100)
+```
+
+FastMCP's `__init__` has explicit default params (`host="127.0.0.1"`, `port=8000`) that take priority over `FASTMCP_HOST` / `FASTMCP_PORT` env vars. Constructor params are the only reliable way.
+
+Systemd unit for 24/7 operation:
+```
+# /etc/systemd/system/kb-mcp-sse.service
+[Service]
+ExecStart=/opt/kb/venv/bin/python3 /opt/kb/mcp_server.py --sse
 ```
 
 ## Architecture
@@ -85,10 +107,11 @@ Args: content (string), title (string), tag (string)
 
 ## Registering in MCP Clients
 
-### Gemini CLI
+### Stdio transport (local)
 
-Add to `~/.gemini/config/mcp_config.json`:
+For MCP clients running on the same machine:
 
+**Gemini CLI** — `~/.gemini/config/mcp_config.json`:
 ```json
 {
     "mcpServers": {
@@ -100,14 +123,42 @@ Add to `~/.gemini/config/mcp_config.json`:
 }
 ```
 
-### Claude Code
+**Claude Code** — `~/.claude.json`:
+```json
+{
+    "mcpServers": {
+        "kb": {
+            "type": "stdio",
+            "command": "/path/to/venv/bin/python3",
+            "args": ["/path/to/kb-mcp/mcp_server.py"],
+            "env": {}
+        }
+    }
+}
+```
+
+### SSE transport (remote desktop)
+
+For MCP clients on other machines (LAN or WireGuard). Requires the SSE server to be running (systemd unit or manual `--sse`).
+
+**Claude Desktop** / **OpenCode** / any SSE-compatible client:
+```json
+{
+    "mcpServers": {
+        "kb": {
+            "url": "http://<nexus-ip>:9100/sse"
+        }
+    }
+}
+```
+
+No `command`, `args`, or `env` fields — SSE transport connects to an already-running server. Real-world example:
 
 ```json
 {
     "mcpServers": {
         "kb": {
-            "command": "/path/to/venv/bin/python3",
-            "args": ["/path/to/kb-mcp/mcp_server.py"]
+            "url": "http://192.168.1.174:9100/sse"
         }
     }
 }
