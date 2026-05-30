@@ -1,8 +1,17 @@
 #!/opt/kb/venv/bin/python3
+import os
+import sys
 import subprocess
+
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("kb")
+# SSE transport — host/port passed to FastMCP constructor
+# (env vars are overridden by explicit params, so we pass them directly)
+_sse_mode = "--sse" in sys.argv
+_host = "0.0.0.0" if _sse_mode else "127.0.0.1"
+_port = 9100 if _sse_mode else 8000
+
+mcp = FastMCP("kb", host=_host, port=_port, log_level="WARNING")
 
 
 @mcp.tool(
@@ -41,4 +50,7 @@ def kb_add(content: str, title: str, tag: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    if "--sse" in sys.argv:
+        mcp.run(transport="sse")
+    else:
+        mcp.run()
