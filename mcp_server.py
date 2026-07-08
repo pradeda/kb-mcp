@@ -31,7 +31,7 @@ def search(query: str) -> str:
             timeout=180,
         )
     except subprocess.TimeoutExpired:
-        return "KB search timed out — OpenRouter/search API spor ili nedostupan. Pokušaj ponovo ili suzi upit."
+        return "KB search timed out — OpenRouter/search API slow or unavailable. Retry or narrow the query."
     return result.stdout or result.stderr or "No results."
 
 
@@ -52,7 +52,7 @@ def add(content: str, title: str, tag: str) -> str:
             timeout=15,
         )
     except subprocess.TimeoutExpired:
-        return "KB add timed out — proveri kb-embed/SQLite (WAL lock?)."
+        return "KB add timed out — check kb-embed/SQLite (WAL lock?)."
     return result.stdout or result.stderr or "Added successfully."
 
 
