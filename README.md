@@ -80,8 +80,14 @@ LLM Agent → MCP Protocol → search() → subprocess → kb ask
                            │              ▼
                            └── LLM synthesis (OpenRouter)
 
-                           add() → subprocess → kb add → SQLite + raw notes
-```
+add() → subprocess → kb add → SQLite + raw notes
+ ```
+
+### Endpoint design
+
+All three HTTP handlers (`/kb/search`, `/kb/websearch`, `/health`) are **plain `def`** — not `async def`. The pipeline is fully blocking (Unix socket embed, sync `httpx`, CPU-bound cross-encoder rerank); FastAPI runs plain-def endpoints in a threadpool, so `/health` stays responsive (~9ms) even while a search is in flight. A previous `async def` version froze the event loop for the full search duration.
+
+The ChromaDB collection UUID is **cached at startup** (resolved once in the `lifespan` handler) instead of being looked up over HTTP on every request. On 404 (collection recreated with a new UUID), the cache is invalidated and re-resolved automatically — one retry is built into `query_chromadb`.
 
 ## MCP Tools
 
