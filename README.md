@@ -6,7 +6,7 @@ MCP (Model Context Protocol) server and KB Search API for the homelab knowledge 
 
 | File | Role | Runs as |
 |------|------|---------|
-| `mcp_server.py` | MCP tools for LLM agents (`kb_search`, `kb_add`) | Registered in Claude Code / Gemini |
+| `mcp_server.py` | MCP tools for LLM agents (`search`, `add`) | Registered in Claude Code / Gemini |
 | `kb_search_api.py` | FastAPI service with 4-layer ranking pipeline | systemd user unit: `kb-search-api` (:8050) |
 
 ## Requirements
@@ -22,7 +22,7 @@ MCP (Model Context Protocol) server and KB Search API for the homelab knowledge 
 - `sentence-transformers`, `fastapi`, `httpx`, `uvicorn`
 - Local KB stack:
   - FastEmbed daemon at `/run/kb-embed/embed.sock`
-  - ChromaDB at `localhost:8000`
+  - ChromaDB at `localhost:8000` (container binds `127.0.0.1` only; host mount must target `/data` — rust Chroma ignores `PERSIST_DIRECTORY`)
   - SQLite DB at `/opt/kb/kb.db`
 
 ## Usage
@@ -65,7 +65,7 @@ ExecStart=/opt/kb/venv/bin/python3 /opt/kb/mcp_server.py --sse
 ## Architecture
 
 ```
-LLM Agent → MCP Protocol → kb_search() → subprocess → kb ask
+LLM Agent → MCP Protocol → search() → subprocess → kb ask
                            │                            │
                            │              POST /kb/search {"format": "full"}
                            │                            │
@@ -75,33 +75,37 @@ LLM Agent → MCP Protocol → kb_search() → subprocess → kb ask
                            │    ├── FastEmbed → ChromaDB (top 25)
                            │    ├── Cross-encoder rerank (ms-marco-MiniLM-L-6-v2)
                            │    ├── Dedup + time decay (half-life 540d, floor 0.3)
-                           │    └── Threshold 0.5 + cap top 5
+                           │    └── Threshold 0.40 + cap top 5
                            │              │
                            │              ▼
                            └── LLM synthesis (OpenRouter)
 
-                           kb_add() → subprocess → kb add → SQLite + raw notes
+                           add() → subprocess → kb add → SQLite + raw notes
 ```
 
 ## MCP Tools
 
-### `kb_search(query)`
+### `search(query)`
 
 Semantic search over the knowledge base. MUST be called before any research, implementation, debugging, or configuration task.
 
 Returns relevant entries about infrastructure, services, and past work.
 
 ```
-Tool: kb_search
+Tool: search
 Args: query (string)
 ```
 
-### `kb_add(content, title, tag)`
+Subprocess timeout is **180s** (`kb ask` = search API retries + OpenRouter synthesis with its own 60s client and 429 retry — 30s was mathematically impossible for the slow path). On timeout the tool returns a readable message instead of an unhandled `TimeoutExpired` traceback.
 
-Add a note to the knowledge base. Use for documenting solutions, gotchas, config changes, or any knowledge worth preserving.
+The LLM synthesis step is **intentional**: consumers include small-context models (local Qwen, DeepSeek in debates) over SSE, so a cheap model (Gemini Flash Lite) compresses 5×3KB raw chunks into a compact answer to save consumer-side tokens. Do not "optimize" it away by returning raw results.
+
+### `add(content, title, tag)`
+
+Add a note to the knowledge base. Use for documenting solutions, gotchas, config changes, or any knowledge worth preserving. Content is passed via stdin (multi-line safe). Timeout 15s, handled gracefully.
 
 ```
-Tool: kb_add
+Tool: add
 Args: content (string), title (string), tag (string)
 ```
 

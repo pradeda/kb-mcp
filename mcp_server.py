@@ -21,13 +21,17 @@ mcp = FastMCP("kb", host=_host, port=_port, log_level="WARNING")
         "Returns relevant entries about homelab infrastructure, services, and past work."
     )
 )
-def kb_search(query: str) -> str:
-    result = subprocess.run(
-        ["/usr/local/bin/kb", "ask", query],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+def search(query: str) -> str:
+    # 180s: kb ask = search API retries + OpenRouter synthesis (60s client + 429 retry)
+    try:
+        result = subprocess.run(
+            ["/usr/local/bin/kb", "ask", query],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired:
+        return "KB search timed out — OpenRouter/search API spor ili nedostupan. Pokušaj ponovo ili suzi upit."
     return result.stdout or result.stderr or "No results."
 
 
@@ -38,14 +42,17 @@ def kb_search(query: str) -> str:
         "Content is passed via stdin to support multi-line text safely."
     )
 )
-def kb_add(content: str, title: str, tag: str) -> str:
-    result = subprocess.run(
-        ["/usr/local/bin/kb", "add", "note", "-", title, tag],
-        input=content,
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
+def add(content: str, title: str, tag: str) -> str:
+    try:
+        result = subprocess.run(
+            ["/usr/local/bin/kb", "add", "note", "-", title, tag],
+            input=content,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        return "KB add timed out — proveri kb-embed/SQLite (WAL lock?)."
     return result.stdout or result.stderr or "Added successfully."
 
 
