@@ -27,6 +27,9 @@ RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 # --- global model reference (loaded at startup) ---
 rerank_model = None
 
+# --- cached collection UUID (resolved at startup, re-resolved on 404) ---
+_collection_id = None
+
 
 # --- sigmoid: map raw cross-encoder score to [0, 1] relevance ---
 def _sigmoid(x: float) -> float:
@@ -52,6 +55,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[startup] WARNING: Failed to load cross-encoder model: {e}", flush=True)
         print("[startup] Reranking disabled — falling back to distance-only ranking.", flush=True)
+
+    # Warm the collection UUID cache (best-effort — resolved lazily on first query if chroma isn't up yet)
+    try:
+        get_collection_id()
+        print(f"[startup] Collection UUID cached: {_collection_id}", flush=True)
+    except Exception as e:
+        print(f"[startup] WARNING: collection UUID not resolved yet: {e}", flush=True)
 
     yield  # app runs here
 
@@ -119,18 +129,20 @@ def embed_query(text: str) -> list[float]:
 
 
 # --- chromadb ---
-def get_collection_id() -> str:
-    """Resolve collection name to UUID."""
-    client = httpx.Client(timeout=10)
-    resp = client.get(f"{CHROMA_BASE}/collections/{CHROMA_COLLECTION}")
-    if resp.status_code != 200:
-        raise RuntimeError(f"Collection lookup failed: {resp.status_code}")
-    return resp.json()["id"]
+def get_collection_id(force_refresh: bool = False) -> str:
+    """Resolve collection name to UUID (cached — UUID only changes if the collection is recreated)."""
+    global _collection_id
+    if _collection_id is None or force_refresh:
+        client = httpx.Client(timeout=10)
+        resp = client.get(f"{CHROMA_BASE}/collections/{CHROMA_COLLECTION}")
+        if resp.status_code != 200:
+            raise RuntimeError(f"Collection lookup failed: {resp.status_code}")
+        _collection_id = resp.json()["id"]
+    return _collection_id
 
 
 def query_chromadb(embedding: list[float]) -> list[dict]:
     """Query ChromaDB with embedding, return top N results (broad recall)."""
-    collection_id = get_collection_id()
     payload = {
         "query_embeddings": [embedding],
         "n_results": N_RESULTS,
@@ -138,10 +150,16 @@ def query_chromadb(embedding: list[float]) -> list[dict]:
     }
 
     client = httpx.Client(timeout=30)
-    resp = client.post(
-        f"{CHROMA_BASE}/collections/{collection_id}/query",
-        json=payload,
-    )
+    resp = None
+    for attempt in range(2):
+        # 404 = collection recreated (new UUID) — re-resolve once and retry
+        collection_id = get_collection_id(force_refresh=(attempt > 0))
+        resp = client.post(
+            f"{CHROMA_BASE}/collections/{collection_id}/query",
+            json=payload,
+        )
+        if resp.status_code != 404:
+            break
 
     if resp.status_code != 200:
         raise RuntimeError(f"ChromaDB error {resp.status_code}: {resp.text}")
@@ -314,8 +332,12 @@ def _to_websearch(results: list[SearchResult]) -> list[dict]:
 
 # --- endpoints ---
 @app.post("/kb/search")
-async def kb_search(req: SearchRequest):
-    """Semantic search over KB. format=full (default) or format=websearch for Open WebUI."""
+def kb_search(req: SearchRequest):
+    """Semantic search over KB. format=full (default) or format=websearch for Open WebUI.
+
+    Plain def (not async): the pipeline is fully blocking (unix socket, sync httpx,
+    CPU rerank) — FastAPI runs plain-def endpoints in a threadpool, so one slow
+    search no longer freezes the event loop."""
     results = _do_search(req.query)
 
     cap = TOP_WEBSEARCH if req.format == "websearch" else TOP_FULL
@@ -332,12 +354,12 @@ async def kb_search(req: SearchRequest):
 
 
 @app.get("/health")
-async def health():
+def health():
     return {"status": "ok", "rerank_model": RERANK_MODEL if rerank_model is not None else "unavailable"}
 
 
 @app.post("/kb/websearch")
-async def kb_websearch(req: SearchRequest):
+def kb_websearch(req: SearchRequest):
     """[DEPRECATED] Use /kb/search with {"format": "websearch"}."""
     results = _do_search(req.query)
     if len(results) > TOP_WEBSEARCH:
