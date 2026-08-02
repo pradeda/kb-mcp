@@ -1,0 +1,9 @@
+clients:
+  mcp-local:
+    token_env: KB_V2_TOKEN_MCP_LOCAL
+    allowed_corpora: [homelab, ai]
+    allowed_scopes: [homelab, ai, both, auto]
+
+# Production path: /opt/kb/v2-clients.yml (0600).
+# This file names environment variables only. Token values belong in the
+# 0600 environment file loaded by kb-search-api.service.

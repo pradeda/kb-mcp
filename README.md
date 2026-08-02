@@ -6,7 +6,7 @@ MCP (Model Context Protocol) server and KB Search API for the homelab knowledge 
 
 | File | Role | Runs as |
 |------|------|---------|
-| `mcp_server.py` | MCP tools for LLM agents (`search`, `add`) | Registered in Claude Code / Gemini |
+| `mcp_server.py` | MCP tools for LLM agents (`semantic_search`, `add`) | Registered in Claude Code / Gemini |
 | `kb_search_api.py` | FastAPI service with 4-layer ranking pipeline | systemd user unit: `kb-search-api` (:8050) |
 
 ## Requirements
@@ -39,6 +39,9 @@ python3 mcp_server.py
 # MCP server — SSE transport (remote access, for desktop clients)
 python3 mcp_server.py --sse    # listens on 0.0.0.0:9100
 
+# MCP server — Streamable HTTP transport (Claude Code 2.x)
+python3 mcp_server.py --http   # listens on 0.0.0.0:9101/mcp
+
 # Run KB Search API (systemd or manual)
 python3 kb_search_api.py
 ```
@@ -62,10 +65,20 @@ Systemd unit for 24/7 operation:
 ExecStart=/opt/kb/venv/bin/python3 /opt/kb/mcp_server.py --sse
 ```
 
+### Streamable HTTP transport (`--http`)
+
+Adding `--http` starts the independent Streamable HTTP endpoint on port 9101 at `/mcp`. It preserves the same tool schema as stdio/SSE and is the preferred remote transport for Claude Code 2.x.
+
+```
+# /etc/systemd/system/kb-mcp-http.service
+[Service]
+ExecStart=/opt/kb/venv/bin/python3 /opt/kb/mcp_server.py --http
+```
+
 ## Architecture
 
 ```
-LLM Agent → MCP Protocol → search() → subprocess → kb ask
+LLM Agent → MCP Protocol → semantic_search() → subprocess → kb ask
                            │                            │
                            │              POST /kb/search {"format": "full"}
                            │                            │
@@ -95,14 +108,14 @@ The ChromaDB collection UUID is **cached at startup** (resolved once in the `lif
 
 ## MCP Tools
 
-### `search(query)`
+### `semantic_search(query)`
 
 Semantic search over the knowledge base. MUST be called before any research, implementation, debugging, or configuration task.
 
 Returns relevant entries about infrastructure, services, and past work.
 
 ```
-Tool: search
+Tool: semantic_search
 Args: query (string)
 ```
 
@@ -173,6 +186,19 @@ No `command`, `args`, or `env` fields — SSE transport connects to an already-r
     "mcpServers": {
         "kb": {
             "url": "http://192.168.1.174:9100/sse"
+        }
+    }
+}
+```
+
+### Streamable HTTP transport (remote Claude Code)
+
+```json
+{
+    "mcpServers": {
+        "kb": {
+            "type": "http",
+            "url": "http://192.168.1.174:9101/mcp"
         }
     }
 }

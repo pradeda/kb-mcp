@@ -1,0 +1,35 @@
+{
+  "health": {
+    "method": "get",
+    "response_schema": {}
+  },
+  "openapi": "3.1.0",
+  "search": {
+    "method": "post",
+    "request_schema": "#/components/schemas/SearchRequest",
+    "response_schema": {}
+  },
+  "search_request_schema": {
+    "properties": {
+      "format": {
+        "default": "full",
+        "title": "Format",
+        "type": "string"
+      },
+      "query": {
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "title": "SearchRequest",
+    "type": "object"
+  },
+  "websearch": {
+    "method": "post",
+    "request_schema": "#/components/schemas/SearchRequest",
+    "response_schema": {}
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "count": 1,
+  "query": "golden",
+  "results": [
+    {
+      "content": "Golden content",
+      "date": "2026-08-02",
+      "distance": 0.1234,
+      "final_score": 0.7,
+      "id": 42,
+      "relevance": 0.8,
+      "source": "https://example.invalid/source",
+      "summary": "Golden summary",
+      "tags": "alpha,beta",
+      "title": "Golden entry"
+    }
+  ]
+}

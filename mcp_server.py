@@ -5,11 +5,13 @@ import subprocess
 
 from mcp.server.fastmcp import FastMCP
 
-# SSE transport — host/port passed to FastMCP constructor
+# SSE / Streamable HTTP transport — host/port passed to FastMCP constructor
 # (env vars are overridden by explicit params, so we pass them directly)
-_sse_mode = "--sse" in sys.argv
-_host = "0.0.0.0" if _sse_mode else "127.0.0.1"
-_port = 9100 if _sse_mode else 8000
+_sse_mode   = "--sse"  in sys.argv
+_http_mode  = "--http" in sys.argv
+_remote     = _sse_mode or _http_mode
+_host       = "0.0.0.0" if _remote else "127.0.0.1"
+_port       = 9101 if _http_mode else (9100 if _sse_mode else 8000)
 
 mcp = FastMCP("kb", host=_host, port=_port, log_level="WARNING")
 
@@ -21,7 +23,7 @@ mcp = FastMCP("kb", host=_host, port=_port, log_level="WARNING")
         "Returns relevant entries about homelab infrastructure, services, and past work."
     )
 )
-def search(query: str) -> str:
+def semantic_search(query: str) -> str:
     # 180s: kb ask = search API retries + OpenRouter synthesis (60s client + 429 retry)
     try:
         result = subprocess.run(
@@ -59,5 +61,7 @@ def add(content: str, title: str, tag: str) -> str:
 if __name__ == "__main__":
     if "--sse" in sys.argv:
         mcp.run(transport="sse")
+    elif "--http" in sys.argv:
+        mcp.run(transport="streamable-http")
     else:
         mcp.run()
