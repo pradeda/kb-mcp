@@ -85,7 +85,11 @@ add() → subprocess → kb add → SQLite + raw notes
 
 ### Endpoint design
 
-All three HTTP handlers (`/kb/search`, `/kb/websearch`, `/health`) are **plain `def`** — not `async def`. The pipeline is fully blocking (Unix socket embed, sync `httpx`, CPU-bound cross-encoder rerank); FastAPI runs plain-def endpoints in a threadpool, so `/health` stays responsive (~9ms) even while a search is in flight. A previous `async def` version froze the event loop for the full search duration.
+All HTTP handlers are **plain `def`** — not `async def`. The pipeline is fully blocking (Unix socket embed, sync `httpx`, CPU-bound cross-encoder rerank); FastAPI runs plain-def endpoints in a threadpool, so `/health` stays responsive (~9ms) even while a search is in flight. A previous `async def` version froze the event loop for the full search duration.
+
+### Experimental Nexus relevance synthesis
+
+The live service contains a purpose-bound `POST /kb/synthesize/nexus-relevance` contract for video and article ingest. It is hidden from OpenAPI/MCP discovery and hard-disabled unless `KB_SYNTHESIS_TOKEN` is configured; callers must send the same value in `X-KB-Synthesis-Token`. Requests identify the untrusted item as `source_type: video|article` (default `video` for compatibility). Retrieval stays local and requires `final_score >= 0.60` for videos or `>= 0.50` for article related-knowledge candidates, sends at most three excerpts of 2,000 characters to the configured synthesis provider, validates strict JSON, and rejects citations outside the retrieved ID set. The `nexus-relevance-v2` response separates a related-knowledge match (`kb_match_confirmed`) from operational Nexus relevance (`direct`, `indirect`, or `not_confirmed`), so the lower article candidate threshold cannot by itself establish a service/workflow/hardware/roadmap connection. Every cited entry also carries a validated, English `match_reason` (maximum 500 characters) explaining the concrete overlap without persisting the raw excerpt. No-match responses skip the model call.
 
 The ChromaDB collection UUID is **cached at startup** (resolved once in the `lifespan` handler) instead of being looked up over HTTP on every request. On 404 (collection recreated with a new UUID), the cache is invalidated and re-resolved automatically — one retry is built into `query_chromadb`.
 
@@ -173,4 +177,3 @@ No `command`, `args`, or `env` fields — SSE transport connects to an already-r
     }
 }
 ```
-
