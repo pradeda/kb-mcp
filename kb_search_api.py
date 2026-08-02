@@ -10,6 +10,8 @@ import httpx
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from kb_v2 import create_v2_app
+
 # --- config ---
 EMBED_SOCKET = "/run/kb-embed/embed.sock"
 CHROMA_BASE = "http://localhost:8000/api/v2/tenants/default_tenant/databases/default_database"
@@ -648,6 +650,12 @@ def kb_websearch(req: SearchRequest):
     if len(results) > TOP_WEBSEARCH:
         results = results[:TOP_WEBSEARCH]
     return _to_websearch(results)
+
+
+# Mounted sub-apps are intentionally absent from the parent OpenAPI schema.
+# The strict v2 contract is published separately at /v2/openapi.json.
+v2_app = create_v2_app(embed_query, lambda: rerank_model)
+app.mount("/v2", v2_app)
 
 
 if __name__ == "__main__":

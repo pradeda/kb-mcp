@@ -6,8 +6,10 @@ MCP (Model Context Protocol) server and KB Search API for the homelab knowledge 
 
 | File | Role | Runs as |
 |------|------|---------|
-| `mcp_server.py` | MCP tools for LLM agents (`semantic_search`, `add`) | Registered in Claude Code / Gemini |
-| `kb_search_api.py` | FastAPI service with 4-layer ranking pipeline | systemd user unit: `kb-search-api` (:8050) |
+| `mcp_server.py` | MCP tools (`semantic_search`, `corpus_search`, `add`) | stdio, SSE :9100, HTTP :9101 |
+| `kb_search_api.py` | Legacy v1 gateway plus mounted v2 read plane | systemd user unit: `kb-search-api` (:8050) |
+| `kb_v2.py` | Strict authenticated multi-corpus retrieval | mounted below `/v2` |
+| `provision_v2.py` | Idempotent private token/allowlist provisioning | operator command |
 
 ## Requirements
 
@@ -19,11 +21,12 @@ MCP (Model Context Protocol) server and KB Search API for the homelab knowledge 
 
 ### `kb_search_api.py`
 - Python 3.10+
-- `sentence-transformers`, `fastapi`, `httpx`, `uvicorn`
+- `sentence-transformers`, `fastapi`, `httpx`, `uvicorn`, `PyYAML`
 - Local KB stack:
   - FastEmbed daemon at `/run/kb-embed/embed.sock`
   - ChromaDB at `localhost:8000` (container binds `127.0.0.1` only; host mount must target `/data` — rust Chroma ignores `PERSIST_DIRECTORY`)
   - SQLite DB at `/opt/kb/kb.db`
+  - AI SQLite DB at `/opt/ai-kb/ai-kb.db`
 
 ## Usage
 
@@ -31,7 +34,7 @@ MCP (Model Context Protocol) server and KB Search API for the homelab knowledge 
 # Install dependencies
 python3 -m venv venv
 source venv/bin/activate
-pip install fastmcp fastapi uvicorn httpx sentence-transformers
+pip install fastmcp fastapi uvicorn httpx pyyaml sentence-transformers
 
 # MCP server — stdio transport (local, for Claude Code)
 python3 mcp_server.py
@@ -78,7 +81,8 @@ ExecStart=/opt/kb/venv/bin/python3 /opt/kb/mcp_server.py --http
 ## Architecture
 
 ```
-LLM Agent → MCP Protocol → semantic_search() → subprocess → kb ask
+LLM Agent → MCP Protocol → semantic_search() → subprocess → kb ask (legacy v1 + synthesis)
+          └──────────────→ corpus_search() ──→ POST /v2/kb/search (structured, no LLM)
                            │                            │
                            │              POST /kb/search {"format": "full"}
                            │                            │
@@ -106,6 +110,34 @@ The live service contains a purpose-bound `POST /kb/synthesize/nexus-relevance` 
 
 The ChromaDB collection UUID is **cached at startup** (resolved once in the `lifespan` handler) instead of being looked up over HTTP on every request. On 404 (collection recreated with a new UUID), the cache is invalidated and re-resolved automatically — one retry is built into `query_chromadb`.
 
+### V2 read plane
+
+`POST /v2/kb/search` is a separate mounted FastAPI application. Its schema is
+served at `/v2/openapi.json`; the root `/openapi.json` remains the frozen v1
+Open WebUI surface. V2 accepts strict `query`, `scope`, `top_k` and
+`allow_degraded` fields, requires a Bearer token, and always returns separate
+`homelab` and `ai` groups with corpus-qualified references. Private `raw_path`
+values are never returned. `GET /v2/health` uses the same authorization and only
+shows corpora allowed to that client.
+
+Local client names and token environment-variable names live in
+`/opt/kb/v2-clients.yml` (0600); token values remain in `/opt/kb/.env` (0600).
+Retrieval and future routing parameters live in `/opt/kb/corpus-router.yml`
+(0600). Missing, malformed, wrongly owned, or incomplete router config makes v2
+health degraded and blocks every v2 search with 503; v1 remains available.
+Provision or validate them without printing secrets:
+
+```bash
+python3 provision_v2.py --install
+python3 provision_v2.py --check
+```
+
+Explicit `homelab`, `ai` and `both` scopes are active in Phase C. `auto` is
+fail-closed with HTTP 409 until the version-bound router holdout passes Phase E.
+The initial `corpus-router-v1-precalibration` version fixes candidate/max-distance
+and threshold values for explicit retrieval, with AI decay explicitly disabled;
+it is not an approval to activate auto routing.
+
 ## MCP Tools
 
 ### `semantic_search(query)`
@@ -122,6 +154,13 @@ Args: query (string)
 Subprocess timeout is **180s** (`kb ask` = search API retries + OpenRouter synthesis with its own 60s client and 429 retry — 30s was mathematically impossible for the slow path). On timeout the tool returns a readable message instead of an unhandled `TimeoutExpired` traceback.
 
 The LLM synthesis step is **intentional**: consumers include small-context models (local Qwen, DeepSeek in debates) over SSE, so a cheap model (Gemini Flash Lite) compresses 5×3KB raw chunks into a compact answer to save consumer-side tokens. Do not "optimize" it away by returning raw results.
+
+### `corpus_search(query, scope="auto", top_k=5)`
+
+Structured multi-corpus search. It calls `/v2/kb/search` directly with
+`allow_degraded=false`, returns grouped JSON, and never invokes OpenRouter. The
+scope enum is `homelab|ai|both|auto`; `top_k` is 1–5 per corpus. Its 45-second
+timeout and HTTP/auth failures are independent of `semantic_search`.
 
 ### `add(content, title, tag)`
 

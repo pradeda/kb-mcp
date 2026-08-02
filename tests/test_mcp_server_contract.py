@@ -5,7 +5,10 @@ import subprocess
 import sys
 import types
 import unittest
+import os
 from unittest.mock import patch
+
+import httpx
 
 
 SERVER_PATH = "/home/turok/projects/kb-mcp/mcp_server.py"
@@ -57,7 +60,7 @@ class MCPServerContractTests(unittest.TestCase):
     def test_tool_names_and_semantic_search_backend_are_stable(self) -> None:
         namespace = self.load_server()
         server = FakeFastMCP.instances[-1]
-        self.assertEqual(server.tools, ["semantic_search", "add"])
+        self.assertEqual(server.tools, ["semantic_search", "corpus_search", "add"])
         self.assertEqual(
             server.kwargs,
             {"host": "127.0.0.1", "port": 8000, "log_level": "WARNING"},
@@ -72,6 +75,37 @@ class MCPServerContractTests(unittest.TestCase):
             text=True,
             timeout=180,
         )
+
+    def test_corpus_search_calls_v2_with_explicit_non_degraded_scope(self) -> None:
+        namespace = self.load_server()
+        response = httpx.Response(
+            200,
+            json={"corpora": {"homelab": {}, "ai": {}}, "total_count": 0},
+        )
+        with patch.dict(os.environ, {"KB_V2_TOKEN_MCP_LOCAL": "secret"}), patch(
+            "httpx.post", return_value=response
+        ) as post:
+            value = namespace["corpus_search"]("query", "both", 3)
+        self.assertEqual(value["total_count"], 0)
+        _, kwargs = post.call_args
+        self.assertEqual(kwargs["headers"], {"Authorization": "Bearer secret"})
+        self.assertEqual(
+            kwargs["json"],
+            {"query": "query", "scope": "both", "top_k": 3, "allow_degraded": False},
+        )
+        self.assertEqual(kwargs["timeout"], 45)
+
+    def test_corpus_search_failure_contracts(self) -> None:
+        namespace = self.load_server()
+        with patch.dict(os.environ, {"KB_V2_TOKEN_MCP_LOCAL": "secret"}):
+            with patch("httpx.post", side_effect=httpx.ReadTimeout("slow")):
+                with self.assertRaisesRegex(RuntimeError, "timed out"):
+                    namespace["corpus_search"]("query", "homelab", 5)
+            for status in (401, 403, 409, 422, 503):
+                response = httpx.Response(status, json={"detail": {"reason": "test_reason"}})
+                with self.subTest(status=status), patch("httpx.post", return_value=response):
+                    with self.assertRaisesRegex(RuntimeError, f"HTTP {status}: test_reason"):
+                        namespace["corpus_search"]("query", "homelab", 5)
 
     def test_stdio_transport_contract(self) -> None:
         self.load_server(run_name="__main__")

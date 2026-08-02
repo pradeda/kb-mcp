@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "KB multi-corpus API",
-    "version": "2.0.0-preimplementation"
+    "version": "2.0.0"
   },
   "paths": {
     "/v2/kb/search": {
@@ -47,6 +47,33 @@
           },
           "503": {
             "description": "A required corpus or v2 dependency is unavailable"
+          }
+        }
+      }
+    },
+    "/v2/health": {
+      "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Readiness for only the corpora allowed to the authenticated client",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponseV2"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "503": {
+            "description": "V2 client authorization configuration is unavailable"
           }
         }
       }
@@ -206,6 +233,37 @@
               "$ref": "#/components/schemas/SearchResultV2"
             }
           }
+        }
+      },
+      "HealthResponseV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "corpora", "auto_routing_enabled"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ok", "degraded"]
+          },
+          "corpora": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CorpusHealthV2"
+            }
+          },
+          "auto_routing_enabled": {
+            "type": "boolean",
+            "const": false
+          }
+        }
+      },
+      "CorpusHealthV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ready", "collection", "reason"],
+        "properties": {
+          "ready": {"type": "boolean"},
+          "collection": {"type": "string"},
+          "reason": {"type": ["string", "null"]}
         }
       },
       "SearchResponseV2": {
