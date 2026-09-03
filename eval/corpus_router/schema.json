@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Corpus router evaluation record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "question",
+    "expected_scope",
+    "critical_homelab",
+    "intent_ambiguous",
+    "expected_refs",
+    "notes"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1500,
+      "pattern": ".*\\S.*"
+    },
+    "expected_scope": {
+      "type": "string",
+      "enum": [
+        "homelab",
+        "ai",
+        "both",
+        "none"
+      ]
+    },
+    "critical_homelab": {
+      "type": "boolean"
+    },
+    "intent_ambiguous": {
+      "type": "boolean"
+    },
+    "expected_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(homelab|ai):[1-9][0-9]*$"
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

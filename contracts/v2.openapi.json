@@ -1,0 +1,409 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "KB multi-corpus API",
+    "version": "2.0.0"
+  },
+  "paths": {
+    "/v2/kb/search": {
+      "post": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequestV2"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fixed-shape multi-corpus result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponseV2"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "403": {
+            "description": "Scope is outside the client allowlist"
+          },
+          "409": {
+            "description": "Auto routing is not enabled for the approved router version"
+          },
+          "422": {
+            "description": "Strict request validation failed"
+          },
+          "503": {
+            "description": "A required corpus or v2 dependency is unavailable"
+          }
+        }
+      }
+    },
+    "/v2/health": {
+      "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Readiness for only the corpora allowed to the authenticated client",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponseV2"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "503": {
+            "description": "V2 client authorization configuration is unavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "Corpus": {
+        "type": "string",
+        "enum": [
+          "homelab",
+          "ai"
+        ]
+      },
+      "Scope": {
+        "type": "string",
+        "enum": [
+          "homelab",
+          "ai",
+          "both",
+          "auto"
+        ]
+      },
+      "SelectedScope": {
+        "type": "string",
+        "enum": [
+          "homelab",
+          "ai",
+          "both",
+          "none"
+        ]
+      },
+      "SearchRequestV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "query",
+          "scope"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1500,
+            "pattern": ".*\\S.*"
+          },
+          "query_alt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1500
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "query_alt_language": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "sr",
+                  "en"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "top_k": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 5
+          },
+          "allow_degraded": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "SearchResultV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "corpus",
+          "entry_id",
+          "ref",
+          "title",
+          "content",
+          "tags",
+          "public_source_url",
+          "link",
+          "distance",
+          "relevance",
+          "final_score"
+        ],
+        "properties": {
+          "corpus": {
+            "$ref": "#/components/schemas/Corpus"
+          },
+          "entry_id": {
+            "type": "integer"
+          },
+          "ref": {
+            "type": "string",
+            "pattern": "^(homelab|ai):[1-9][0-9]*$"
+          },
+          "title": {
+            "type": "string"
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tags": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "public_source_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "link": {
+            "type": "string",
+            "format": "uri"
+          },
+          "distance": {
+            "type": "number"
+          },
+          "relevance": {
+            "type": "number"
+          },
+          "final_score": {
+            "type": "number"
+          }
+        }
+      },
+      "CorpusResultsV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "searched",
+          "available",
+          "count",
+          "results"
+        ],
+        "properties": {
+          "searched": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "results": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "$ref": "#/components/schemas/SearchResultV2"
+            }
+          }
+        }
+      },
+      "HealthResponseV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "corpora",
+          "auto_routing_enabled"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded"
+            ]
+          },
+          "corpora": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CorpusHealthV2"
+            }
+          },
+          "auto_routing_enabled": {
+            "type": "boolean",
+            "const": false
+          }
+        }
+      },
+      "CorpusHealthV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ready",
+          "collection",
+          "reason"
+        ],
+        "properties": {
+          "ready": {
+            "type": "boolean"
+          },
+          "collection": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entry_count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pending_embed": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_compile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SearchResponseV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "query",
+          "requested_scope",
+          "selected_scope",
+          "routing_mode",
+          "routing_reason",
+          "needs_clarification",
+          "router_version",
+          "degraded_corpora",
+          "total_count",
+          "corpora"
+        ],
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "requested_scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "selected_scope": {
+            "$ref": "#/components/schemas/SelectedScope"
+          },
+          "routing_mode": {
+            "type": "string",
+            "enum": [
+              "explicit",
+              "auto"
+            ]
+          },
+          "routing_reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "needs_clarification": {
+            "type": "boolean"
+          },
+          "router_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "degraded_corpora": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Corpus"
+            }
+          },
+          "total_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "corpora": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "homelab",
+              "ai"
+            ],
+            "properties": {
+              "homelab": {
+                "$ref": "#/components/schemas/CorpusResultsV2"
+              },
+              "ai": {
+                "$ref": "#/components/schemas/CorpusResultsV2"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

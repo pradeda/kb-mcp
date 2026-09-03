@@ -1,0 +1,8 @@
+# Direct roots for kb_search_api.py and kb_v2.py.
+fastapi==0.136.3
+httpx==0.28.1
+pydantic==2.13.3
+PyYAML==6.0.2
+sentence-transformers==5.5.1
+torch==2.12.0
+uvicorn==0.46.0

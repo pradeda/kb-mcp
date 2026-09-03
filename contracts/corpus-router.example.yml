@@ -1,0 +1,19 @@
+router_version: corpus-router-v1-precalibration
+accept_thresholds:
+  homelab: 0.60
+  ai: 0.60
+reject_threshold: 0.40
+both_margin: 0.05
+dead_zone:
+  lower: 0.40
+  upper: 0.60
+candidate_k: 25
+max_distance:
+  homelab: 0.60
+  ai: 0.60
+ai_decay:
+  mode: disabled
+
+# Production path: /opt/kb/corpus-router.yml (turok:turok 0600).
+# This pre-calibration version controls explicit retrieval but cannot enable
+# auto routing. Phase E must bump the version and bind it to a passing holdout.

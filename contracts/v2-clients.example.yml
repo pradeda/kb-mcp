@@ -1,0 +1,20 @@
+clients:
+  mcp-local:
+    token_env: KB_V2_TOKEN_MCP_LOCAL
+    allowed_corpora: [homelab, ai]
+    allowed_scopes: [homelab, ai, both, auto]
+  kb-cli-local:
+    token_env: KB_V2_TOKEN_KB_CLI_LOCAL
+    allowed_corpora: [homelab, ai]
+    allowed_scopes: [homelab, ai, both, auto]
+  # Dashboard client: reads /v2/health for both corpora but may not search
+  # across them. allowed_scopes cannot be empty — the loader rejects that — so
+  # `homelab` is the narrowest grant available, and `both` returns 403.
+  kerrigan-local:
+    token_env: KB_V2_TOKEN_KERRIGAN
+    allowed_corpora: [homelab, ai]
+    allowed_scopes: [homelab]
+
+# Production path: /opt/kb/v2-clients.yml (0600).
+# This file names environment variables only. Token values belong in the
+# 0600 environment file loaded by kb-search-api.service.
